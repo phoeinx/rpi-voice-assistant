@@ -1,0 +1,7 @@
+[Unit]
+Description=Dialogbank
+
+[Service]
+ExecStart=xterm -e "/usr/share/python/bin/dbank 2>&1 | tee  ~/dialogbank.log"
+Type=simple
+Restart=always

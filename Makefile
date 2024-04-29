@@ -13,6 +13,7 @@ install: dist/dialogbank.deb
 
 dist/dialogbank.deb: dist
 	fpm \
+		--version $$(python3 setup.py --version) \
 		--verbose \
 		--debug \
 		--architecture all \
@@ -24,7 +25,8 @@ dist/dialogbank.deb: dist
 		--prefix /usr/share/python \
 		--depends portaudio19-dev \
 		--depends mpv \
-		--deb-systemd deb/dialogbank.service \
-		--deb-systemd-enable \
-		--deb-systemd-auto-start \
+		--depends xterm \
+		--config-files etc/dialogbank/dialogbank.env \
+		--config-files usr/lib/systemd/user/dialogbank.service \
+		--config-files etc/xdg/autostart/dialogbank.desktop \
 		.
