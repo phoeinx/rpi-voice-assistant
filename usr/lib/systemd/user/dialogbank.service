@@ -2,6 +2,6 @@
 Description=Dialogbank
 
 [Service]
-ExecStart=xterm -e "/usr/share/python/bin/dbank 2>&1 | tee  ~/dialogbank.log"
+ExecStart=xterm -e "/usr/share/python/bin/dbank | tee >(systemd-cat -t dialogbank)"
 Type=simple
 Restart=always
