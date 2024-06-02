@@ -1,0 +1,9 @@
+blinkt==0.1.2
+gTTS==2.5.1
+protobuf>=4.0.0
+PyAudio==0.2.14
+python-dotenv==1.0.1
+pytimedinput==2.0.1
+Requests==2.31.0
+setuptools==66.1.1
+structlog==24.1.0
