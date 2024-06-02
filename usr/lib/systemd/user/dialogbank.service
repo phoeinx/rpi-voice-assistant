@@ -5,3 +5,5 @@ Description=Dialogbank
 ExecStart=xterm -e "/usr/share/python/bin/dbank | tee >(systemd-cat -t dialogbank)"
 Type=simple
 Restart=always
+RestartSec=1
+StartLimitInterval=0 #No rate limiting
