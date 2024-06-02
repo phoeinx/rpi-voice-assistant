@@ -1,6 +1,7 @@
 from multiprocessing import shared_memory
 import socket
-from blinkt import set_pixel, show
+import signal
+from blinkt import set_pixel, show, clear
 
 class LEDStatusManager():
     NO_DATA = 0
@@ -103,11 +104,6 @@ class LEDStatusManager():
         except socket.error as ex:
             print(ex)
             return False
-        
-    def turn_off_leds(self):
-        for led in self.config:
-            set_pixel(led, 0, 0, 0)
-        show()
         
     def __del__(self):
         self.status.shm.close()
