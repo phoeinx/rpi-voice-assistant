@@ -1,6 +1,7 @@
 from multiprocessing import Process, shared_memory
 import os
 import signal
+import time
 
 import structlog
 import sys
@@ -28,6 +29,8 @@ RATE = 16000
 CHUNK = 128
 language_code = "de-DE"  #BCP-47 language tag
 FAILED_REQUEST = -1
+
+WIFI_CHECK_PERIOD = 10 #seconds
 
 log = structlog.get_logger(__name__)
 
@@ -139,14 +142,12 @@ def recognize_user_input(google_asr_client: speech.SpeechClient, google_streamin
     led_status_manager.update('LISTENING', LEDStatusManager.NO_DATA)
     return utterance
 
-def wait_for_start_signal(led_status_manager):
-    #Busy wait is necessary as a simple way to continue polling WIFI status.
-    #TODO: Perhaps move to WIFI updating process.
+def run_update_wifi_availability(shared_status_list: shared_memory.ShareableList):
+    led_status_manager = LEDStatusManager(shared_status_list)
+
     while True:
         led_status_manager.update_wifi_availability()
-        userText, timedOut = timedKey("Press s to start the voice assistant. \n", allowCharacters="s", timeout=5)
-        if (not timedOut):
-            return
+        time.sleep(WIFI_CHECK_PERIOD)
 
 def run_dialogbench(voiceflow_client: Voiceflow, google_asr_client: speech.SpeechClient, google_streaming_config: speech.StreamingRecognitionConfig, elevenlabs_client: ElevenLabs, shared_status_list: shared_memory.ShareableList):
     led_status_manager = LEDStatusManager(shared_status_list)
@@ -206,14 +207,17 @@ def main():
         log.debug("[Voice Assistant]: Starting voice assistant", voiceflow_user_id=voiceflow_client.user_id)
         led_status_manager.update('APPLICATION', LEDStatusManager.READY)
 
-        wait_for_start_signal(led_status_manager)
+        wifi_process = Process(target=run_update_wifi_availability, args=(led_status_manager.status,), daemon=True)
+        wifi_process.start()
+
+        timedKey("Press s to start the voice assistant. \n", allowCharacters="s", timeout=-1)
+
         p = Process(target=run_dialogbench, args=(voiceflow_client, google_asr_client, google_streaming_config, elevenlabs_client, led_status_manager.status), daemon=True)
         p.start()
         
         log.debug("[Dialogbench]: Running busy waiting loop to listen for interrupt signal.")
         while p.is_alive():
-            led_status_manager.update_wifi_availability()
-            userText, timedOut = timedKey(allowCharacters="q", timeout=3)
+            userText, timedOut = timedKey(allowCharacters="q", timeout=10)
             if (not timedOut):
                 p.terminate()
                 log.debug("[Dialogbench]: Terminating process due to user interrupt.")
