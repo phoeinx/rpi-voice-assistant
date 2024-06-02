@@ -1,5 +1,6 @@
 from multiprocessing import Process, shared_memory
 import os
+import signal
 
 import structlog
 import sys
@@ -13,6 +14,7 @@ from . import audio
 from .voiceflow import Voiceflow
 from .elevenlabs import ElevenLabs
 from .led_status import LEDStatusManager
+import blinkt
 
 from typing import Dict, Any
 JSON = Dict[str, Any]
@@ -28,6 +30,13 @@ language_code = "de-DE"  #BCP-47 language tag
 FAILED_REQUEST = -1
 
 log = structlog.get_logger(__name__)
+
+def clear_leds(signum, frame):
+    blinkt.clear()
+    blinkt.show()
+    exit(0)
+
+signal.signal(signal.SIGTERM, clear_leds)
 
 def generate_and_play_elevenlabs_audio(el: ElevenLabs, message: str, led_status_manager: LEDStatusManager, audio_player: audio.AudioPlayer) -> bool:
     """
@@ -198,7 +207,7 @@ def main():
         led_status_manager.update('APPLICATION', LEDStatusManager.READY)
 
         wait_for_start_signal(led_status_manager)
-        p = Process(target=run_dialogbench, args=(voiceflow_client, google_asr_client, google_streaming_config, elevenlabs_client, led_status_manager.status))
+        p = Process(target=run_dialogbench, args=(voiceflow_client, google_asr_client, google_streaming_config, elevenlabs_client, led_status_manager.status), daemon=True)
         p.start()
         
         log.debug("[Dialogbench]: Running busy waiting loop to listen for interrupt signal.")
