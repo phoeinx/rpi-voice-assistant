@@ -13,3 +13,7 @@ docker compose run --rm dev make
 ```
 
 The binary Debian package will be written to `dist/dialogbank.deb`.
+
+
+## Development
+- If you add new dependencies to the project, make sure to add them to the `requirements.txt` file **and** in the `setup.py` file.

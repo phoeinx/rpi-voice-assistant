@@ -13,4 +13,3 @@ sudo apt-get install tailscale
 
 # 4. Connect your machine to your Tailscale network and authenticate in your browser
 sudo tailscale up
-
