@@ -60,11 +60,10 @@ class ElevenLabs:
     def generate_audio_elevenlabs(self, text: str) -> Iterator[bytes]:
         """Run speech synthesis via ElevenLabs API and return an MP3 bytestream."""
         headers = { "xi-api-key": self.api_key }
-        query = { "optimize_streaming_latency": "4" }
+        query = { "optimize_streaming_latency": "4", "output_format": "mp3_22050_32"}
 
         payload = {
             "model_id": "eleven_multilingual_v2",
-            "output_format": "mp3_22050_32",
             "text": text,
         }
 
