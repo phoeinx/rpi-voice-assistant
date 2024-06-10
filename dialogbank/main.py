@@ -41,8 +41,8 @@ def clear_leds(signum, frame):
 
 signal.signal(signal.SIGTERM, clear_leds)
 
-def shutdown():
-    os.system("sudo shutdown -h now")
+def reboot():
+    os.system("sudo reboot")
 
 def generate_and_play_elevenlabs_audio(el: ElevenLabs, message: str, led_status_manager: LEDStatusManager, audio_player: audio.AudioPlayer) -> bool:
     """
@@ -217,7 +217,7 @@ def main():
 
         if userInput == "p":
             log.debug("[Voice Assistant]: User signal to shutdown system received. Shutting down.")
-            shutdown()
+            reboot()
 
         p = Process(target=run_dialogbench, args=(voiceflow_client, google_asr_client, google_streaming_config, elevenlabs_client, led_status_manager.status), daemon=True)
         p.start()
@@ -228,7 +228,7 @@ def main():
 
             if userText == "p":
                 log.debug("[Voice Assistant]: User signal to shutdown system received. Shutting down.")
-                shutdown()
+                reboot()
 
             if userText == "q":
                 p.terminate()
