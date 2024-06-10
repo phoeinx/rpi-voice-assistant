@@ -41,6 +41,9 @@ def clear_leds(signum, frame):
 
 signal.signal(signal.SIGTERM, clear_leds)
 
+def shutdown():
+    os.system("sudo shutdown -h now")
+
 def generate_and_play_elevenlabs_audio(el: ElevenLabs, message: str, led_status_manager: LEDStatusManager, audio_player: audio.AudioPlayer) -> bool:
     """
         Generates audio using the Elevenlabs API and plays it back.
@@ -210,15 +213,24 @@ def main():
         wifi_process = Process(target=run_update_wifi_availability, args=(led_status_manager.status,), daemon=True)
         wifi_process.start()
 
-        timedKey("Press s to start the voice assistant. \n", allowCharacters="s", timeout=-1)
+        userInput, timedOut = timedKey("Press s to start the voice assistant. \n", allowCharacters="sp", timeout=-1)
+
+        if userInput == "p":
+            log.debug("[Voice Assistant]: User signal to shutdown system received. Shutting down.")
+            shutdown()
 
         p = Process(target=run_dialogbench, args=(voiceflow_client, google_asr_client, google_streaming_config, elevenlabs_client, led_status_manager.status), daemon=True)
         p.start()
         
         log.debug("[Dialogbench]: Running busy waiting loop to listen for interrupt signal.")
         while p.is_alive():
-            userText, timedOut = timedKey(allowCharacters="q", timeout=10)
-            if (not timedOut):
+            userText, timedOut = timedKey(allowCharacters="qp", timeout=10)
+
+            if userText == "p":
+                log.debug("[Voice Assistant]: User signal to shutdown system received. Shutting down.")
+                shutdown()
+
+            if userText == "q":
                 p.terminate()
                 log.debug("[Dialogbench]: Terminating process due to user interrupt.")
                 break
