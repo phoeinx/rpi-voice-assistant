@@ -14,12 +14,11 @@ void setup() {
   pinMode(pinReset, INPUT_PULLUP);
   pinMode(pinPower, INPUT_PULLUP);
 
-  // initialize control over the keyboard:
   Keyboard.begin();
 }
 
 void loop() {
-  bool btn = !digitalRead(pinGabel); // Telefonhörergabel, I can hear you!
+  bool btn = !digitalRead(pinGabel);
   if (btn != aiphone) {
     aiphone = btn;
     if (aiphone) // Telefongabel abgenommen
@@ -42,20 +41,15 @@ void loop() {
       Keyboard.press(KEY_LEFT_CTRL);
       Keyboard.press('c');
       Keyboard.releaseAll();
-      Keyboard.println(
-          "pzthon3 /m dialogbank.main"); // oder wie auch imemr man das Programm
-                                         // neu startet
       delay(1000);
     }
   }
 
-  btn = !digitalRead(pinPower); // Raspberry Pi fährt runter
+  btn = !digitalRead(pinPower);
   if (btn != pwrbtn) {
     pwrbtn = btn;
     if (pwrbtn) {
-      Keyboard.press(KEY_LEFT_CTRL);
-      Keyboard.releaseAll();
-      Keyboard.println("shutdown");
+      Keyboard.println("p");
       delay(1000);
     }
   }
