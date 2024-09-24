@@ -162,22 +162,21 @@ def run_dialogbench(voiceflow_client: Voiceflow, google_asr_client: speech.Speec
         audio_player.async_waiting_tone() #signal processing to user
 
         vf_response = run_voiceflow_launch_request(voiceflow_client, led_status_manager)
-        
+
         end, message = unpack_vf_response(vf_response)
 
         while not end:
             generate_and_play_elevenlabs_audio(elevenlabs_client, message, led_status_manager, audio_player)
-            
-            audio_player.beep() #signal start of listening to user
+
             utterance = recognize_user_input(google_asr_client, google_streaming_config, led_status_manager, stream)
-            
+
             audio_player.async_waiting_tone() #signal processing to user
             vf_response = run_voiceflow_interact_request(voiceflow_client, led_status_manager, utterance)
 
             end, message = unpack_vf_response(vf_response)
 
         terminate_interaction(voiceflow_client, elevenlabs_client, led_status_manager, audio_player, message)
-        
+
 def main():
     #Run setup for Dialogbench Loop
     led_status_manager = LEDStatusManager()
@@ -234,6 +233,6 @@ def main():
                 p.terminate()
                 log.debug("[Dialogbench]: Terminating process due to user interrupt.")
                 break
-                
+
 if __name__ == "__main__":
     main()
