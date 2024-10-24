@@ -105,8 +105,9 @@ class AudioPlayer():
         Audio player for playing different formats of audio as subprocesses.
         Tracks the current audio process to stop it if needed (e.g. when playing a new audio or the program exits).
     """
-    def __init__(self):
+    def __init__(self, wait_tone_path=None):
         self.audio_process = None
+        self.wait_tone_path = wait_tone_path or SYS_TYPING_PATH
 
     def __del__(self):
         log.debug("[Audio]: Stopping AudioPlayer.")
@@ -175,7 +176,7 @@ class AudioPlayer():
         self.play_wav(SYS_BEEP_BEEP_PATH)
 
     def async_waiting_tone(self):
-        self.play_wav(os.getenv('WAIT_TONE_PATH', SYS_TYPING_PATH))
+        self.play_wav(self.wait_tone_path)
 
 # Process response from Google ASR
 def process(responses):

@@ -1,7 +1,11 @@
 from multiprocessing import Process, shared_memory
+from dataclasses import dataclass
+
+from requests import HTTPError
 import os
 import signal
 import time
+import requests
 
 import structlog
 import sys
@@ -33,6 +37,50 @@ FAILED_REQUEST = -1
 WIFI_CHECK_PERIOD = 10 #seconds
 
 log = structlog.get_logger(__name__)
+
+@dataclass
+class Settings:
+    EL_API_KEY: str
+    EL_VOICE_ID: str
+    VF_API_KEY: str
+    WAIT_TONE_PATH: str
+
+    @classmethod
+    def load(cls):
+        dialogbank_id = os.getenv("DIALOGBANK_ID")
+        airtable_api_key = os.getenv("AIRTABLE_API_KEY")
+        airtable_base_id = os.getenv("AIRTABLE_BASE_ID")
+        airtable_table_id = os.getenv("AIRTABLE_TABLE_ID")
+        
+        response = requests.get(
+            f"https://api.airtable.com/v0/{airtable_base_id}/{airtable_table_id}", 
+            params={"filterByFormula" : f"dialogbank_id='{dialogbank_id}'"},
+            headers={"Authorization": f"Bearer {airtable_api_key}"},
+        )
+
+        try:
+            response.raise_for_status()
+        except HTTPError as err:
+            raise Exception("Could not query configuration from airtable.") from err
+
+        config = response.json()["records"][0]["fields"]
+
+        settings = Settings(
+            EL_API_KEY = os.getenv("EL_API_KEY"),
+            EL_VOICE_ID = config.get("el_voice_id"),
+            VF_API_KEY = config.get("vf_api_key"),
+            WAIT_TONE_PATH = os.getenv("WAIT_TONE_PATH"),
+        )
+
+        if not settings.EL_API_KEY:
+            raise Exception("Missing Elevenlabs api key configuration.")
+        if not settings.EL_VOICE_ID:
+            raise Exception("Missing Elevenlabs voice id configuration.")
+        if not settings.VF_API_KEY:
+            raise Exception("Missing Voiceflow api key configuration.")
+
+        return settings
+
 
 def clear_leds(signum, frame):
     blinkt.clear()
@@ -152,10 +200,10 @@ def run_update_wifi_availability(shared_status_list: shared_memory.ShareableList
         led_status_manager.update_wifi_availability()
         time.sleep(WIFI_CHECK_PERIOD)
 
-def run_dialogbench(voiceflow_client: Voiceflow, google_asr_client: speech.SpeechClient, google_streaming_config: speech.StreamingRecognitionConfig, elevenlabs_client: ElevenLabs, shared_status_list: shared_memory.ShareableList):
+def run_dialogbench(voiceflow_client: Voiceflow, google_asr_client: speech.SpeechClient, google_streaming_config: speech.StreamingRecognitionConfig, elevenlabs_client: ElevenLabs, shared_status_list: shared_memory.ShareableList, settings: Settings):
     led_status_manager = LEDStatusManager(shared_status_list)
     led_status_manager.update('APPLICATION', LEDStatusManager.CONVERSATION_RUNNING)
-    audio_player = audio.AudioPlayer()
+    audio_player = audio.AudioPlayer(settings.WAIT_TONE_PATH)
 
     with audio.MicrophoneStream(RATE, CHUNK) as stream:
         # Each loop iteration represents one interaction of one user with the voice assistant
@@ -183,8 +231,10 @@ def main():
     led_status_manager.update_wifi_availability()
     led_status_manager.update('APPLICATION', LEDStatusManager.BOOTING)
 
+    settings = Settings.load()
+
     voiceflow_client = Voiceflow(
-        api_key=os.getenv('VF_API_KEY', "dummy_key"),
+        api_key=settings.VF_API_KEY,
         user_id=uuid.uuid4()
     )
     # Remove any potential user state to always start from beginning of voice assistant
@@ -201,8 +251,9 @@ def main():
     )
 
     elevenlabs_client = ElevenLabs(
-            api_key=os.getenv('EL_API_KEY', "dummy_key"), 
-            voice_id=os.getenv('EL_VOICE_ID', "dummy_key"))
+        api_key=settings.EL_API_KEY, 
+        voice_id=settings.EL_VOICE_ID,
+    )
 
     while True:
         voiceflow_client.user_id = uuid.uuid4()
@@ -218,7 +269,7 @@ def main():
             log.debug("[Voice Assistant]: User signal to shutdown system received. Shutting down.")
             reboot()
 
-        p = Process(target=run_dialogbench, args=(voiceflow_client, google_asr_client, google_streaming_config, elevenlabs_client, led_status_manager.status), daemon=True)
+        p = Process(target=run_dialogbench, args=(voiceflow_client, google_asr_client, google_streaming_config, elevenlabs_client, led_status_manager.status, settings), daemon=True)
         p.start()
         
         log.debug("[Dialogbench]: Running busy waiting loop to listen for interrupt signal.")
