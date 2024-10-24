@@ -6,6 +6,7 @@ import os
 import signal
 import time
 import requests
+from pathlib import Path
 
 import structlog
 import sys
@@ -43,7 +44,7 @@ class Settings:
     EL_API_KEY: str
     EL_VOICE_ID: str
     VF_API_KEY: str
-    WAIT_TONE_PATH: str
+    WAIT_TONE_PATH: str | None
 
     @classmethod
     def load(cls):
@@ -65,11 +66,19 @@ class Settings:
 
         config = response.json()["records"][0]["fields"]
 
+        wait_tone_path = None
+        if "wait_tone" in config:
+            wait_tone_url = config["wait_tone"][0]["url"]
+            response = requests.get(wait_tone_url)
+            file = Path.cwd().joinpath('wait_tone')
+            file.write_bytes(response.content)
+            wait_tone_path = file
+
         settings = Settings(
             EL_API_KEY = os.getenv("EL_API_KEY"),
             EL_VOICE_ID = config.get("el_voice_id"),
             VF_API_KEY = config.get("vf_api_key"),
-            WAIT_TONE_PATH = os.getenv("WAIT_TONE_PATH"),
+            WAIT_TONE_PATH = wait_tone_path,
         )
 
         if not settings.EL_API_KEY:

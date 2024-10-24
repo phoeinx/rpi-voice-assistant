@@ -1,3 +1,6 @@
+# Wait tone file
+wait_tone
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
