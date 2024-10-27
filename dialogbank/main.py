@@ -1,4 +1,4 @@
-from multiprocessing import Process, shared_memory
+from multiprocessing import Process
 from dataclasses import dataclass
 
 from requests import HTTPError
@@ -14,20 +14,25 @@ import uuid
 
 from dotenv import load_dotenv
 from google.cloud import speech_v1 as speech
-from pytimedinput import timedKey
 
 from . import audio
 from .voiceflow import Voiceflow
 from .elevenlabs import ElevenLabs
-from .led_status import LEDStatusManager
-import blinkt
 
 from typing import Dict, Any
 JSON = Dict[str, Any]
 
+import RPi.GPIO as GPIO
+import time
+
+
 # Setup
 load_dotenv()
 load_dotenv("/etc/dialogbank/dialogbank.env")
+
+TELEPHONE_PIN = 27
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(TELEPHONE_PIN, GPIO.IN)
 
 # Google ASR Config Values
 RATE = 16000
@@ -35,7 +40,7 @@ CHUNK = 128
 language_code = "de-DE"  #BCP-47 language tag
 FAILED_REQUEST = -1
 
-WIFI_CHECK_PERIOD = 10 #seconds
+WIFI_CHECK_PERIOD = 1  # seconds
 
 log = structlog.get_logger(__name__)
 
@@ -52,7 +57,7 @@ class Settings:
         airtable_api_key = os.getenv("AIRTABLE_API_KEY")
         airtable_base_id = os.getenv("AIRTABLE_BASE_ID")
         airtable_table_id = os.getenv("AIRTABLE_TABLE_ID")
-        
+
         response = requests.get(
             f"https://api.airtable.com/v0/{airtable_base_id}/{airtable_table_id}", 
             params={"filterByFormula" : f"dialogbank_id='{dialogbank_id}'"},
@@ -90,30 +95,23 @@ class Settings:
 
         return settings
 
-
-def clear_leds(signum, frame):
-    blinkt.clear()
-    blinkt.show()
-    exit(0)
-
-signal.signal(signal.SIGTERM, clear_leds)
-
 def reboot():
     os.system("sudo reboot")
 
-def generate_and_play_elevenlabs_audio(el: ElevenLabs, message: str, led_status_manager: LEDStatusManager, audio_player: audio.AudioPlayer) -> bool:
+
+def generate_and_play_elevenlabs_audio(
+    el: ElevenLabs, message: str, audio_player: audio.AudioPlayer
+) -> bool:
     """
         Generates audio using the Elevenlabs API and plays it back.
     """
     try:
-        led_status_manager.update('ELEVENLABS_API', LEDStatusManager.RUNNING_REQUEST)
         stream = el.generate_audio_stream(message)
         audio_player.play_audio_stream(stream)
     except Exception as e:
         log.error("Error in Elevenlabs interaction", error=str(e))
-        led_status_manager.update('ELEVENLABS_API', LEDStatusManager.UNSUCCESSFUL_REQUEST)
         sys.exit(1)
-    led_status_manager.update('ELEVENLABS_API', LEDStatusManager.SUCCESSFUL_REQUEST)
+
 
 def unpack_vf_response(vf_response: JSON) -> tuple[bool, str | None]:
     messages = []
@@ -130,12 +128,19 @@ def unpack_vf_response(vf_response: JSON) -> tuple[bool, str | None]:
     log.debug("Voiceflow generated message", message=full_message)
     return end, full_message
 
-def terminate_interaction(vf: Voiceflow, elevenlabs_client: ElevenLabs, led_status_manager: LEDStatusManager, audio_player: audio.AudioPlayer, message: str = None):
+
+def terminate_interaction(
+    vf: Voiceflow,
+    elevenlabs_client: ElevenLabs,
+    audio_player: audio.AudioPlayer,
+    message: str = None,
+):
     if message:
         log.debug("[Voiceflow]: Got end response", response=message)
-        generate_and_play_elevenlabs_audio(elevenlabs_client, message, led_status_manager, audio_player)
+        generate_and_play_elevenlabs_audio(elevenlabs_client, message, audio_player)
     log.debug("[Voice Assistant]: =========END OF INTERACTION=========")
     vf.user_state.delete()
+
 
 def is_successful_vf_response(response: JSON) -> bool:
     for item in response:
@@ -143,41 +148,45 @@ def is_successful_vf_response(response: JSON) -> bool:
             return True
     return False
 
-def run_voiceflow_launch_request(voiceflow_client: Voiceflow, led_status_manager: LEDStatusManager) -> dict:
+
+def run_voiceflow_launch_request(voiceflow_client: Voiceflow) -> dict:
     try:    
-        log.debug("[Voiceflow]: Requesting first voiceflow interaction.", voiceflow_user_id=voiceflow_client.user_id)
-        led_status_manager.update('VOICEFLOW_API', LEDStatusManager.RUNNING_REQUEST)
+        log.debug(
+            "[Voiceflow]: Requesting first voiceflow interaction.",
+            voiceflow_user_id=voiceflow_client.user_id,
+        )
         vf_response = voiceflow_client.interact.launch()
         if not is_successful_vf_response(vf_response):
             log.error("Unsuccessful Voiceflow API request.", error=str(e))
-            led_status_manager.update('VOICEFLOW_API', LEDStatusManager.UNSUCCESSFUL_REQUEST)
             sys.exit(1)
-        led_status_manager.update('VOICEFLOW_API', LEDStatusManager.SUCCESSFUL_REQUEST)
     except Exception as e:
         log.error("Error in voiceflow interaction", error=str(e))
-        led_status_manager.update('VOICEFLOW_API', LEDStatusManager.UNSUCCESSFUL_REQUEST)
         sys.exit(1)
     return vf_response
 
-def run_voiceflow_interact_request(voiceflow_client: Voiceflow, led_status_manager: LEDStatusManager, utterance: str) -> dict:
+
+def run_voiceflow_interact_request(voiceflow_client: Voiceflow, utterance: str) -> dict:
     try:    
-        log.debug("[Voiceflow]: Requesting voiceflow text interaction.", voiceflow_user_id=voiceflow_client.user_id)
-        led_status_manager.update('VOICEFLOW_API', LEDStatusManager.RUNNING_REQUEST)
+        log.debug(
+            "[Voiceflow]: Requesting voiceflow text interaction.",
+            voiceflow_user_id=voiceflow_client.user_id,
+        )
         vf_response = voiceflow_client.interact.text(user_input=utterance)
         if not is_successful_vf_response(vf_response):
             log.error("Unsuccessful Voiceflow API request.", error=str(e))
-            led_status_manager.update('VOICEFLOW_API', LEDStatusManager.UNSUCCESSFUL_REQUEST)
-            sys.exit(1)        
-        led_status_manager.update('VOICEFLOW_API', LEDStatusManager.SUCCESSFUL_REQUEST)
+            sys.exit(1)
     except Exception as e:
         log.error("Error in voiceflow interaction", error=str(e))
-        led_status_manager.update('VOICEFLOW_API', LEDStatusManager.UNSUCCESSFUL_REQUEST)
         sys.exit(1)
     return vf_response
 
-def recognize_user_input(google_asr_client: speech.SpeechClient, google_streaming_config: speech.StreamingRecognitionConfig, led_status_manager: LEDStatusManager, stream) -> str:
+
+def recognize_user_input(
+    google_asr_client: speech.SpeechClient,
+    google_streaming_config: speech.StreamingRecognitionConfig,
+    stream,
+) -> str:
     log.debug("[Voice Assistant]: Start listening.")
-    led_status_manager.update('LISTENING', LEDStatusManager.LISTENING)
     stream.start_buf()
 
     audio_generator = stream.generator()
@@ -187,58 +196,78 @@ def recognize_user_input(google_asr_client: speech.SpeechClient, google_streamin
     )
 
     try:
-        led_status_manager.update('GOOGLE_ASR_API', LEDStatusManager.RUNNING_REQUEST)
-        responses = google_asr_client.streaming_recognize(google_streaming_config, requests)
-        led_status_manager.update('GOOGLE_ASR_API', LEDStatusManager.SUCCESSFUL_REQUEST)
+        responses = google_asr_client.streaming_recognize(
+            google_streaming_config, requests
+        )
         utterance = audio.process(responses)
         log.debug("[Google ASR]: Recognized utterance", utterance=utterance)
     except Exception as e:
         log.error("Error in Google ASR interaction", error=str(e))
-        led_status_manager.update('GOOGLE_ASR_API', LEDStatusManager.UNSUCCESSFUL_REQUEST)
         sys.exit(1)
-    
+
     stream.stop_buf()
     log.debug("[Voice Assistant]: Stop listening.")
-    led_status_manager.update('LISTENING', LEDStatusManager.NO_DATA)
     return utterance
 
-def run_update_wifi_availability(shared_status_list: shared_memory.ShareableList):
-    led_status_manager = LEDStatusManager(shared_status_list)
 
-    while True:
-        led_status_manager.update_wifi_availability()
-        time.sleep(WIFI_CHECK_PERIOD)
+# TODO: Move WIFI Check to single LED.
+# def run_update_wifi_availability(shared_status_list: shared_memory.ShareableList):
+# def check_internet_availability(self, host="8.8.8.8", port=53, timeout=2):
+# """
+# Host: 8.8.8.8 (google-public-dns-a.google.com)
+# OpenPort: 53/tcp
+# Service: domain (DNS/TCP)
+# """
+# try:
+#     socket.setdefaulttimeout(timeout)
+#     socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
+#     return True
+# except socket.error as ex:
+#     print(ex)
+#     return False
 
-def run_dialogbench(voiceflow_client: Voiceflow, google_asr_client: speech.SpeechClient, google_streaming_config: speech.StreamingRecognitionConfig, elevenlabs_client: ElevenLabs, shared_status_list: shared_memory.ShareableList, settings: Settings):
-    led_status_manager = LEDStatusManager(shared_status_list)
-    led_status_manager.update('APPLICATION', LEDStatusManager.CONVERSATION_RUNNING)
+
+def run_dialogbench(
+    voiceflow_client: Voiceflow,
+    google_asr_client: speech.SpeechClient,
+    google_streaming_config: speech.StreamingRecognitionConfig,
+    elevenlabs_client: ElevenLabs,
+    settings: Settings,
+):
+    def sigterm_handler(signum, frame):
+        # potentially terminate children/stop audioplayer
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, sigterm_handler)
     audio_player = audio.AudioPlayer(settings.WAIT_TONE_PATH)
 
     with audio.MicrophoneStream(RATE, CHUNK) as stream:
         # Each loop iteration represents one interaction of one user with the voice assistant
         audio_player.async_waiting_tone() #signal processing to user
 
-        vf_response = run_voiceflow_launch_request(voiceflow_client, led_status_manager)
+        vf_response = run_voiceflow_launch_request(voiceflow_client)
 
         end, message = unpack_vf_response(vf_response)
 
         while not end:
-            generate_and_play_elevenlabs_audio(elevenlabs_client, message, led_status_manager, audio_player)
+            generate_and_play_elevenlabs_audio(elevenlabs_client, message, audio_player)
 
-            utterance = recognize_user_input(google_asr_client, google_streaming_config, led_status_manager, stream)
+            utterance = recognize_user_input(
+                google_asr_client, google_streaming_config, stream
+            )
 
             audio_player.async_waiting_tone() #signal processing to user
-            vf_response = run_voiceflow_interact_request(voiceflow_client, led_status_manager, utterance)
+            vf_response = run_voiceflow_interact_request(voiceflow_client, utterance)
 
             end, message = unpack_vf_response(vf_response)
 
-        terminate_interaction(voiceflow_client, elevenlabs_client, led_status_manager, audio_player, message)
+        terminate_interaction(
+            voiceflow_client, elevenlabs_client, audio_player, message
+        )
+
 
 def main():
-    #Run setup for Dialogbench Loop
-    led_status_manager = LEDStatusManager()
-    led_status_manager.update_wifi_availability()
-    led_status_manager.update('APPLICATION', LEDStatusManager.BOOTING)
+    # Run setup for Dialogbench Loop
 
     settings = Settings.load()
 
@@ -266,33 +295,48 @@ def main():
 
     while True:
         voiceflow_client.user_id = uuid.uuid4()
-        log.debug("[Voice Assistant]: Starting voice assistant", voiceflow_user_id=voiceflow_client.user_id)
-        led_status_manager.update('APPLICATION', LEDStatusManager.READY)
+        log.debug(
+            "[Voice Assistant]: Starting voice assistant",
+            voiceflow_user_id=voiceflow_client.user_id,
+        )
 
-        wifi_process = Process(target=run_update_wifi_availability, args=(led_status_manager.status,), daemon=True)
-        wifi_process.start()
+        # TODO: Update Wifi-Process to run with single, directly connected WIFI LED.
+        # wifi_process = Process(target=run_update_wifi_availability, args=(led_status_manager.status,), daemon=True)
+        # wifi_process.start()
 
-        userInput, timedOut = timedKey("Press s to start the voice assistant. \n", allowCharacters="sp", timeout=-1)
+        while not GPIO.input(TELEPHONE_PIN):
+            time.sleep(0.2)
 
-        if userInput == "p":
-            log.debug("[Voice Assistant]: User signal to shutdown system received. Shutting down.")
-            reboot()
+        # TODO: Update Code to run reset with directly connected reset button.
+        # if userInput == "p":
+        #     log.debug("[Voice Assistant]: User signal to shutdown system received. Shutting down.")
+        #     reboot()
 
-        p = Process(target=run_dialogbench, args=(voiceflow_client, google_asr_client, google_streaming_config, elevenlabs_client, led_status_manager.status, settings), daemon=True)
+        p = Process(
+            target=run_dialogbench,
+            args=(
+                voiceflow_client,
+                google_asr_client,
+                google_streaming_config,
+                elevenlabs_client,
+                settings,
+            ),
+        )  # , daemon=True) TODO: why daemon?
         p.start()
-        
-        log.debug("[Dialogbench]: Running busy waiting loop to listen for interrupt signal.")
-        while p.is_alive():
-            userText, timedOut = timedKey(allowCharacters="qp", timeout=10)
 
-            if userText == "p":
-                log.debug("[Voice Assistant]: User signal to shutdown system received. Shutting down.")
-                reboot()
+        log.debug(
+            "[Dialogbench]: Running busy waiting loop to listen for interrupt signal."
+        )
 
-            if userText == "q":
-                p.terminate()
-                log.debug("[Dialogbench]: Terminating process due to user interrupt.")
-                break
+        while GPIO.input(TELEPHONE_PIN):
+            time.sleep(0.2)
+
+            # TODO: Update Code to run reset with directly connected reset button.
+            # if userText == "p":
+            #     log.debug("[Voice Assistant]: User signal to shutdown system received. Shutting down.")
+            #     reboot()
+        p.terminate()
+        time.sleep(1)
 
 if __name__ == "__main__":
     main()
