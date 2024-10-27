@@ -235,7 +235,11 @@ def run_dialogbench(
     settings: Settings,
 ):
     def sigterm_handler(signum, frame):
-        # potentially terminate children/stop audioplayer
+        # TODO: The signal handler gets registered to also terminate the audio child process when the dialog loop is interrupted.
+        # The AudioPlayer object has a __del__ method that cleans the process up.
+        # However, the call to sys.exit() usually leads to the call of the __del__ function on the AudioPlayer,
+        # this is however not guaranteed.
+        # If time: check if more robust solution is possible.
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, sigterm_handler)
@@ -266,9 +270,18 @@ def run_dialogbench(
         )
 
 
+def wait_until_telephone_picked_up():
+    while not GPIO.input(TELEPHONE_PIN):
+        time.sleep(0.2)
+
+        # TODO: Update Code to run reset with directly connected reset button.
+        # if userInput == "p":
+        #     log.debug("[Voice Assistant]: User signal to shutdown system received. Shutting down.")
+        #     reboot()
+
+
 def main():
     # Run setup for Dialogbench Loop
-
     settings = Settings.load()
 
     voiceflow_client = Voiceflow(
@@ -304,13 +317,7 @@ def main():
         # wifi_process = Process(target=run_update_wifi_availability, args=(led_status_manager.status,), daemon=True)
         # wifi_process.start()
 
-        while not GPIO.input(TELEPHONE_PIN):
-            time.sleep(0.2)
-
-        # TODO: Update Code to run reset with directly connected reset button.
-        # if userInput == "p":
-        #     log.debug("[Voice Assistant]: User signal to shutdown system received. Shutting down.")
-        #     reboot()
+        wait_until_telephone_picked_up()
 
         p = Process(
             target=run_dialogbench,
@@ -327,14 +334,15 @@ def main():
         log.debug(
             "[Dialogbench]: Running busy waiting loop to listen for interrupt signal."
         )
-
-        while GPIO.input(TELEPHONE_PIN):
+        # TODO: Check if logic covers all cases sufficiently.
+        while p.is_alive() and GPIO.input(TELEPHONE_PIN):
             time.sleep(0.2)
 
             # TODO: Update Code to run reset with directly connected reset button.
             # if userText == "p":
             #     log.debug("[Voice Assistant]: User signal to shutdown system received. Shutting down.")
             #     reboot()
+
         p.terminate()
         time.sleep(1)
 

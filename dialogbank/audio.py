@@ -6,7 +6,6 @@ import queue
 import base64
 import os
 import structlog
-import time
 
 SYS_BEEP_BEEP_PATH = os.path.join(os.path.dirname(__file__),"assets/beepbeep.wav")
 SYS_BEEP_PATH = os.path.join(os.path.dirname(__file__),"assets/beep.wav")
